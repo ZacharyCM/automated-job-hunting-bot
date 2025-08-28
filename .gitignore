@@ -1,0 +1,17 @@
+# Environment files
+.env
+*.env
+
+# Database
+*.db
+
+# Python
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+dist/
+
+# OS
+.DS_Store
