@@ -326,10 +326,8 @@ def filter_jobs_by_date(jobs_list: List[dict], days_filter: Optional[int]) -> Li
     return filtered_jobs
 
 # Serve static files
-if os.path.exists("../client/dist"):
-    app.mount("/static", StaticFiles(directory="../client/dist"), name="static")
-elif os.path.exists("./client/dist"):
-    app.mount("/static", StaticFiles(directory="./client/dist"), name="static")
+if os.path.exists("dist"):
+    app.mount("/", StaticFiles(directory="dist", html=True), name="static")
 
 
 @app.on_event("startup")
