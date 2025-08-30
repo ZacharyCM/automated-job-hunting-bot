@@ -526,14 +526,6 @@ async def run_scheduled_search(scheduled_search_id: int):
     finally:
         db.close()
 
-@app.get("/")
-async def read_root():
-    if os.path.exists("../client/dist/index.html"):
-        return FileResponse("../client/dist/index.html")
-    elif os.path.exists("./client/dist/index.html"):
-        return FileResponse("./client/dist/index.html")
-    return {"message": "Job Hunting Bot API is running! Visit /docs for API documentation."}
-
 @app.get("/api/health")
 async def health_check():
     return {
