@@ -6,8 +6,12 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Database URL from environment variable
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://jobbot:password123@localhost:5432/jobbot_db")
+# Railway provides DATABASE_URL automatically for PostgreSQL
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    # Fallback for local development
+    DATABASE_URL = "postgresql://jobbot:password123@localhost:5432/jobbot_db"
 
 # Create SQLAlchemy engine
 engine = create_engine(

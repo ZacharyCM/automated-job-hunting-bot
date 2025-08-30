@@ -1,3 +1,12 @@
+# Multi-stage build for frontend
+FROM node:18-alpine as frontend-build
+WORKDIR /app/client
+COPY client/package*.json ./
+RUN npm install
+COPY client/ ./
+RUN npm run build
+
+# Python backend stage
 FROM python:3.11-slim
 
 # Set working directory
@@ -13,9 +22,11 @@ RUN apt-get update && apt-get install -y \
 COPY server/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy server code
 COPY server/ ./server/
-COPY client/ ./client/
+
+# Copy built frontend from previous stage
+COPY --from=frontend-build /app/client/dist ./client/dist
 
 # Expose port
 EXPOSE 8000
@@ -24,5 +35,8 @@ EXPOSE 8000
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
+# Change working directory to server for the command
+WORKDIR /app/server
+
 # Run the application
-CMD ["uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

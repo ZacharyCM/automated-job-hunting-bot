@@ -328,6 +328,9 @@ def filter_jobs_by_date(jobs_list: List[dict], days_filter: Optional[int]) -> Li
 # Serve static files
 if os.path.exists("../client/dist"):
     app.mount("/static", StaticFiles(directory="../client/dist"), name="static")
+elif os.path.exists("./client/dist"):
+    app.mount("/static", StaticFiles(directory="./client/dist"), name="static")
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -529,6 +532,8 @@ async def run_scheduled_search(scheduled_search_id: int):
 async def read_root():
     if os.path.exists("../client/dist/index.html"):
         return FileResponse("../client/dist/index.html")
+    elif os.path.exists("./client/dist/index.html"):
+        return FileResponse("./client/dist/index.html")
     return {"message": "Job Hunting Bot API is running! Visit /docs for API documentation."}
 
 @app.get("/api/health")
