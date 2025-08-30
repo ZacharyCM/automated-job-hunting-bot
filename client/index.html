@@ -9,24 +9,111 @@
     <div class="container">
         <header>
             <h1>🤖 Job Hunting Bot</h1>
-            <p>Find your dream engineering job automatically</p>
+            <p>Find your dream job automatically</p>
         </header>
         
         <main>
-            <form id="jobSearchForm" class="search-form">
+            <!-- Unified Search Form -->
+            <form id="unifiedSearchForm" class="unified-search-form">
                 <div class="form-group">
-                    <input type="text" id="keywords" placeholder="e.g., New Grad Software Engineering" required>
+                    <input type="text" id="keywords" placeholder="Job keywords (e.g., Software Engineer)" required>
                     <input type="text" id="location" placeholder="Location (optional)">
-                    <button type="submit">Search Jobs</button>
+                    <select id="dateFilter">
+                        <option value="">All time</option>
+                        <option value="1">Last 1 day</option>
+                        <option value="3">Last 3 days</option>
+                        <option value="7">Last 7 days</option>
+                        <option value="14">Last 2 weeks</option>
+                        <option value="30">Last 30 days</option>
+                        <option value="60">Last 2 months</option>
+                        <option value="90">Last 3 months</option>
+                        <option value="180">Last 6 months</option>
+                        <option value="365">Last 12 months</option>
+                    </select>
+                </div>
+                <div class="action-buttons">
+                    <button type="submit" class="search-btn">Search Jobs Now</button>
+                    <button type="button" id="scheduleBtn" class="schedule-btn">Schedule Search</button>
+                    <button type="button" id="recentJobsBtn" class="recent-btn">View Recent Jobs</button>
                 </div>
             </form>
             
+            <!-- Schedule Modal -->
+            <div id="scheduleModal" class="modal hidden">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>Schedule Search</h3>
+                        <span class="close">&times;</span>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label for="frequency">Frequency:</label>
+                            <select id="frequency">
+                                <option value="1min">Every Minute</option>
+                                <option value="hourly">Every Hour</option>
+                                <option value="2hours">Every 2 Hours</option>
+                                <option value="3hours">Every 3 Hours</option>
+                                <option value="6hours">Every 6 Hours</option>
+                                <option value="daily" selected>Daily</option>
+                                <option value="weekly">Weekly</option>
+                            </select>
+                        </div>
+                        <div class="modal-actions">
+                            <button type="button" id="confirmSchedule" class="confirm-btn">Schedule</button>
+                            <button type="button" class="cancel-btn">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Recent Jobs Modal -->
+            <div id="recentJobsModal" class="modal hidden">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>View Recent Jobs</h3>
+                        <span class="close">&times;</span>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label for="searchesBack">Show jobs from last:</label>
+                            <select id="searchesBack">
+                                <option value="1">1 search</option>
+                                <option value="2">2 searches</option>
+                                <option value="3">3 searches</option>
+                                <option value="4">4 searches</option>
+                                <option value="5" selected>5 searches</option>
+                                <option value="6">6 searches</option>
+                                <option value="7">7 searches</option>
+                                <option value="8">8 searches</option>
+                                <option value="9">9 searches</option>
+                                <option value="10">10 searches</option>
+                            </select>
+                        </div>
+                        <div class="modal-actions">
+                            <button type="button" id="confirmRecentJobs" class="confirm-btn">View Jobs</button>
+                            <button type="button" class="cancel-btn">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Loading Indicator -->
             <div id="loading" class="loading hidden">
                 <div class="spinner"></div>
                 <p>Searching for jobs...</p>
             </div>
             
+            <!-- Results Container -->
             <div id="results" class="results-container"></div>
+            
+            <!-- Pagination -->
+            <div id="pagination" class="pagination hidden"></div>
+            
+            <!-- Scheduled Searches Section -->
+            <div id="scheduleSection" class="schedule-section">
+                <h2>Active Scheduled Searches</h2>
+                <div class="scheduled-grid"></div>
+            </div>
         </main>
     </div>
     <script type="module" src="/main.js"></script>

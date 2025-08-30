@@ -10,3 +10,4 @@ cors==1.0.1
 fastapi-cors==0.0.6
 APScheduler==3.10.4
 aiohttp==3.9.1
+python-dateutil==2.8.2

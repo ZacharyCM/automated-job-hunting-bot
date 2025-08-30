@@ -53,14 +53,14 @@ class Job(Base):
 class ScheduledSearch(Base):
     """
     Model for storing scheduled/automated searches
-    Future feature for automation
     """
     __tablename__ = "scheduled_searches"
     
     id = Column(Integer, primary_key=True, index=True)
     keywords = Column(String(255), nullable=False)
     location = Column(String(255), default="")
-    frequency = Column(String(50), default="daily")  # hourly, daily, weekly
+    frequency = Column(String(50), default="daily")  # hourly, daily, weekly, etc.
+    date_filter_days = Column(Integer)  # Filter jobs by days old (e.g., 7 = last 7 days)
     is_active = Column(String(10), default="true")  # Store as string for simplicity
     last_run = Column(DateTime)
     next_run = Column(DateTime)

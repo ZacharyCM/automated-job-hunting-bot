@@ -4,14 +4,35 @@
 
 # Database
 *.db
+*.sqlite
+*.sqlite3
 
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+.coverage
+*.log
 
 # Node
 node_modules/
 dist/
 
+# IDE
+.vscode/
+.idea/
+*.swp
+
 # OS
 .DS_Store
+Thumbs.db
+
+# Project specific
+*.pid
+logs/

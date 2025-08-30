@@ -19,7 +19,7 @@ class AdzunaClient:
         self, 
         keywords: str, 
         location: Optional[str] = None,
-        results_per_page: int = 20,
+        results_per_page: int = 50,
         page: int = 1,
         sort_by: str = "relevance"
     ) -> Dict[str, Any]:
