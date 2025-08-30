@@ -326,8 +326,27 @@ def filter_jobs_by_date(jobs_list: List[dict], days_filter: Optional[int]) -> Li
     return filtered_jobs
 
 # Serve static files
+#if os.path.exists("dist"):
+    #app.mount("/", StaticFiles(directory="dist", html=True), name="static")
+# Serve static files
 if os.path.exists("dist"):
+    print("✓ dist folder found")
+    print(f"dist contents: {os.listdir('dist')}")
     app.mount("/", StaticFiles(directory="dist", html=True), name="static")
+else:
+    print("✗ dist folder not found")
+    print(f"Current directory: {os.getcwd()}")
+    print(f"Contents: {os.listdir('.')}")
+
+# Add a fallback route for debugging
+@app.get("/debug")
+async def debug_info():
+    return {
+        "current_directory": os.getcwd(),
+        "files_in_current_dir": os.listdir('.'),
+        "dist_exists": os.path.exists("dist"),
+        "dist_contents": os.listdir("dist") if os.path.exists("dist") else "N/A"
+    }
 
 
 @app.on_event("startup")
