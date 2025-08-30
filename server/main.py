@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_, func, or_
 import re
 from dateutil import parser
-
+from pathlib import Path
 from database import engine, SessionLocal, get_db
 from models import Base, Job, Search, ScheduledSearch
 from adzuna_client import AdzunaClient
@@ -70,6 +70,7 @@ class SearchRequest(BaseModel):
 
 # Global variable to track latest automated search
 latest_automated_search_id = None
+
 def format_job_for_ui(job_data, source="api"):
     """
     Ensure consistent job formatting for UI display.
@@ -116,7 +117,6 @@ def format_job_for_ui(job_data, source="api"):
             "salary_range": salary_range,
             "source": source
         }
-
 
 # Enhanced search functions
 def normalize_search_terms(text):
@@ -324,30 +324,6 @@ def filter_jobs_by_date(jobs_list: List[dict], days_filter: Optional[int]) -> Li
             filtered_jobs.append(job)
     
     return filtered_jobs
-
-# Serve static files
-#if os.path.exists("dist"):
-    #app.mount("/", StaticFiles(directory="dist", html=True), name="static")
-# Serve static files
-if os.path.exists("dist"):
-    print("✓ dist folder found")
-    print(f"dist contents: {os.listdir('dist')}")
-    app.mount("/", StaticFiles(directory="dist", html=True), name="static")
-else:
-    print("✗ dist folder not found")
-    print(f"Current directory: {os.getcwd()}")
-    print(f"Contents: {os.listdir('.')}")
-
-# Add a fallback route for debugging
-@app.get("/debug")
-async def debug_info():
-    return {
-        "current_directory": os.getcwd(),
-        "files_in_current_dir": os.listdir('.'),
-        "dist_exists": os.path.exists("dist"),
-        "dist_contents": os.listdir("dist") if os.path.exists("dist") else "N/A"
-    }
-
 
 @app.on_event("startup")
 async def startup_event():
@@ -954,6 +930,53 @@ async def delete_scheduled_search(schedule_id: int, db: Session = Depends(get_db
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error deleting scheduled search: {str(e)}")
+
+# Add a fallback route for debugging
+@app.get("/debug")
+async def debug_info():
+    return {
+        "current_directory": os.getcwd(),
+        "files_in_current_dir": os.listdir('.'),
+        "dist_exists": os.path.exists("dist"),
+        "dist_contents": os.listdir("dist") if os.path.exists("dist") else "N/A"
+    }
+
+# Static file serving - MUST BE LAST
+if os.path.exists("dist"):
+    print("✅ dist folder found")
+    print(f"dist contents: {os.listdir('dist')}")
+    
+    # Mount the assets folder for CSS/JS files
+    app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
+    
+    # Serve the main index.html at root
+    @app.get("/")
+    async def read_index():
+        return FileResponse('dist/index.html')
+    
+    # Catch-all route for SPA routing - serve index.html for any non-API routes
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Don't interfere with API routes
+        if full_path.startswith("api"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        
+        # Check if it's a static asset
+        file_path = Path(f"dist/{full_path}")
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(file_path)
+        
+        # For all other routes, serve the SPA
+        return FileResponse('dist/index.html')
+    
+else:
+    print("❌ dist folder not found")
+    print(f"Current directory: {os.getcwd()}")
+    print(f"Contents: {os.listdir('.')}")
+    
+    @app.get("/")
+    async def root():
+        return {"message": "Job Hunting Bot API - Frontend not built. Run 'npm run build' to build the frontend."}
 
 if __name__ == "__main__":
     uvicorn.run(
