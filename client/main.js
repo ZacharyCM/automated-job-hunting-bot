@@ -118,7 +118,7 @@ function autoPopulateResults(search, jobs) {
                 <p class="search-details">
                     <strong>Keywords:</strong> "${search.keywords}" | 
                     <strong>Location:</strong> ${search.location || 'Any location'} | 
-                    <strong>Time:</strong> ${new Date(search.created_at).toLocaleString()}
+                    <strong>Time:</strong> ${search.created_at}
                 </p>
             </div>
         `;
@@ -138,7 +138,7 @@ function autoPopulateResults(search, jobs) {
 
 // Enhanced automated search display
 function displayAutomatedSearchResults(search, jobs, isNewResult = false) {
-    const searchTime = new Date(search.created_at).toLocaleString();
+    const searchTime = search.created_at; // This is already Pacific-formatted from the backend
     const resultId = `automated-result-${search.id || Date.now()}`;
     
     // Count job sources
@@ -517,7 +517,8 @@ function displayCurrentPage() {
 
 // Enhanced job card creation
 function createEnhancedJobCard(job) {
-    const datePosted = job.date_posted ? new Date(job.date_posted).toLocaleDateString() : 'Recently';
+    const datePosted = job.date_posted_formatted || 
+                      (job.date_posted ? new Date(job.date_posted).toLocaleDateString() : 'Recently');
     const salary = job.salary_range ? `<p><strong>Salary:</strong> ${job.salary_range}</p>` : '';
     
     // Determine job source and create appropriate indicator

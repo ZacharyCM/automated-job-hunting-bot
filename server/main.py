@@ -17,6 +17,8 @@ from sqlalchemy import desc, and_, func, or_
 import re
 from dateutil import parser
 from pathlib import Path
+import pytz
+
 from database import engine, SessionLocal, get_db
 from models import Base, Job, Search, ScheduledSearch
 from adzuna_client import AdzunaClient
@@ -54,6 +56,55 @@ scheduler = AsyncIOScheduler()
 scheduler.start()
 atexit.register(lambda: scheduler.shutdown())
 
+# Timezone utility functions
+def to_pacific_time(dt):
+    """
+    Convert UTC datetime to Pacific Time (handles PST/PDT automatically)
+    """
+    if dt is None:
+        return None
+    
+    # Define Pacific timezone
+    pacific = pytz.timezone('America/Los_Angeles')
+    
+    # If datetime is naive (no timezone), assume it's UTC
+    if dt.tzinfo is None:
+        dt = pytz.utc.localize(dt)
+    
+    # Convert to Pacific time
+    return dt.astimezone(pacific)
+
+def format_pacific_datetime(dt, format_str="%Y-%m-%d %I:%M %p %Z"):
+    """
+    Format datetime in Pacific Time
+    """
+    if dt is None:
+        return None
+    
+    pacific_dt = to_pacific_time(dt)
+    return pacific_dt.strftime(format_str)
+
+def format_job_date_pacific(date_str):
+    """
+    Format job posting date to Pacific Time
+    """
+    if not date_str:
+        return "Recently"
+    
+    try:
+        # Parse the job date (Adzuna format: "2024-08-27T14:30:00Z")
+        if date_str.endswith('Z'):
+            dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        else:
+            dt = datetime.fromisoformat(date_str)
+        
+        # Convert to Pacific time and format
+        pacific_dt = to_pacific_time(dt)
+        return pacific_dt.strftime("%m/%d/%Y %I:%M %p %Z")
+        
+    except (ValueError, TypeError):
+        return "Recently"
+
 # Pydantic models
 class ScheduleSearchRequest(BaseModel):
     keywords: str
@@ -73,7 +124,7 @@ latest_automated_search_id = None
 
 def format_job_for_ui(job_data, source="api"):
     """
-    Ensure consistent job formatting for UI display.
+    Ensure consistent job formatting for UI display with Pacific time.
     Handles both database job objects and API job dictionaries.
     """
     if hasattr(job_data, 'external_id'):
@@ -86,6 +137,7 @@ def format_job_for_ui(job_data, source="api"):
             "description": job_data.description,
             "apply_link": job_data.apply_link,
             "date_posted": job_data.date_posted,
+            "date_posted_formatted": format_job_date_pacific(job_data.date_posted),
             "salary_range": job_data.salary_range,
             "source": "database"
         }
@@ -114,6 +166,7 @@ def format_job_for_ui(job_data, source="api"):
             "description": job_data.get("description", ""),
             "apply_link": job_data.get("redirect_url", ""),
             "date_posted": job_data.get("created", ""),
+            "date_posted_formatted": format_job_date_pacific(job_data.get("created", "")),
             "salary_range": salary_range,
             "source": source
         }
@@ -226,6 +279,7 @@ def format_job_from_db(job):
         "description": job.description,
         "apply_link": job.apply_link,
         "date_posted": job.date_posted,
+        "date_posted_formatted": format_job_date_pacific(job.date_posted),
         "salary_range": job.salary_range,
         "source": "database"
     }
@@ -556,6 +610,7 @@ async def get_latest_automated_search():
                 "description": job.description,
                 "apply_link": job.apply_link,
                 "date_posted": job.date_posted,
+                "date_posted_formatted": format_job_date_pacific(job.date_posted),
                 "salary_range": job.salary_range,
                 "source": "database"
             })
@@ -565,7 +620,7 @@ async def get_latest_automated_search():
                 "keywords": search.keywords,
                 "location": search.location,
                 "results_count": search.results_count,
-                "created_at": search.created_at.isoformat()
+                "created_at": format_pacific_datetime(search.created_at)
             },
             "jobs": formatted_jobs
         }
@@ -573,7 +628,6 @@ async def get_latest_automated_search():
     finally:
         db.close()
 
-# Update the get_recent_automated_searches endpoint to use consistent formatting
 @app.get("/api/recent-automated-searches")
 async def get_recent_automated_searches(
     since: Optional[str] = Query(None, description="ISO timestamp to get searches since"),
@@ -641,7 +695,7 @@ async def get_recent_automated_searches(
                         "keywords": search.keywords,
                         "location": search.location,
                         "results_count": len(all_formatted_jobs),
-                        "created_at": search.created_at.isoformat(),
+                        "created_at": format_pacific_datetime(search.created_at),
                         "search_type": "automated"
                     },
                     "jobs": all_formatted_jobs
@@ -657,8 +711,7 @@ async def get_recent_automated_searches(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching recent automated searches: {str(e)}")
-    
-# Also update the unified search endpoint to use consistent formatting
+
 @app.post("/api/search")
 async def unified_search(request: SearchRequest, db: Session = Depends(get_db)):
     """Enhanced unified search that combines database and API results with consistent formatting"""
@@ -858,6 +911,7 @@ async def get_recent_jobs(
                 "description": job.description,
                 "apply_link": job.apply_link,
                 "date_posted": job.date_posted,
+                "date_posted_formatted": format_job_date_pacific(job.date_posted),
                 "salary_range": job.salary_range,
                 "search_keywords": next((s.keywords for s in recent_searches if s.id == job.search_id), ""),
                 "search_location": next((s.location for s in recent_searches if s.id == job.search_id), ""),
@@ -870,7 +924,7 @@ async def get_recent_jobs(
                 "keywords": search.keywords,
                 "location": search.location,
                 "results_count": search.results_count,
-                "created_at": search.created_at.isoformat()
+                "created_at": format_pacific_datetime(search.created_at)
             })
         
         return {
@@ -896,9 +950,9 @@ async def get_scheduled_searches(db: Session = Depends(get_db)):
                     "frequency": schedule.frequency,
                     "date_filter_days": schedule.date_filter_days,
                     "is_active": schedule.is_active == "true",
-                    "last_run": schedule.last_run.isoformat() if schedule.last_run else None,
-                    "next_run": schedule.next_run.isoformat() if schedule.next_run else None,
-                    "created_at": schedule.created_at.isoformat()
+                    "last_run": format_pacific_datetime(schedule.last_run) if schedule.last_run else None,
+                    "next_run": format_pacific_datetime(schedule.next_run) if schedule.next_run else None,
+                    "created_at": format_pacific_datetime(schedule.created_at)
                 }
                 for schedule in scheduled_searches
             ]
@@ -982,6 +1036,7 @@ else:
     @app.get("/")
     async def root():
         return {"message": "Job Hunting Bot API - Frontend not built. Run 'npm run build' to build the frontend."}
+
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
