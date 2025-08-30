@@ -941,18 +941,22 @@ async def debug_info():
         "dist_contents": os.listdir("dist") if os.path.exists("dist") else "N/A"
     }
 
+# Location of dist folder
+# Absolute path to the dist folder
+dist_path = Path(__file__).parent.parent / "client" / "dist"
+
 # Static file serving - MUST BE LAST
-if os.path.exists("dist"):
+if dist_path.exists():
     print("✅ dist folder found")
-    print(f"dist contents: {os.listdir('dist')}")
+    print(f"dist contents: {os.listdir(dist_path)}")
     
     # Mount the assets folder for CSS/JS files
-    app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
+    app.mount("/assets", StaticFiles(directory=str(dist_path / "assets")), name="assets")
     
     # Serve the main index.html at root
     @app.get("/")
     async def read_index():
-        return FileResponse('dist/index.html')
+        return FileResponse(str(dist_path / 'index.html'))
     
     # Catch-all route for SPA routing - serve index.html for any non-API routes
     @app.get("/{full_path:path}")
@@ -962,22 +966,22 @@ if os.path.exists("dist"):
             raise HTTPException(status_code=404, detail="Not Found")
         
         # Check if it's a static asset
-        file_path = Path(f"dist/{full_path}")
+        file_path = dist_path / full_path
         if file_path.exists() and file_path.is_file():
-            return FileResponse(file_path)
+            return FileResponse(str(file_path))
         
         # For all other routes, serve the SPA
-        return FileResponse('dist/index.html')
+        return FileResponse(str(dist_path / 'index.html'))
     
 else:
     print("❌ dist folder not found")
+    print(f"Looking for dist at: {dist_path}")
     print(f"Current directory: {os.getcwd()}")
     print(f"Contents: {os.listdir('.')}")
     
     @app.get("/")
     async def root():
         return {"message": "Job Hunting Bot API - Frontend not built. Run 'npm run build' to build the frontend."}
-
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
