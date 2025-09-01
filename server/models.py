@@ -15,13 +15,14 @@ class Search(Base):
     keywords = Column(String(255), nullable=False, index=True)
     location = Column(String(255), default="")
     results_count = Column(Integer, default=0)
+    search_type = Column(String(20), default="manual")  # "manual" or "automated"
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationship to jobs
     jobs = relationship("Job", back_populates="search", cascade="all, delete-orphan")
     
     def __repr__(self):
-        return f"<Search(id={self.id}, keywords='{self.keywords}', location='{self.location}')>"
+        return f"<Search(id={self.id}, keywords='{self.keywords}', location='{self.location}', type='{self.search_type}')>"
 
 class Job(Base):
     """

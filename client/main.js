@@ -14,34 +14,44 @@ let currentPage = 1;
 const jobsPerPage = 30;
 let lastCheckTime = null;
 let pollingInterval = null;
+let isManualSearchActive = false; // Track if we just did a manual search
 
 // Initialize the app
 document.addEventListener('DOMContentLoaded', () => {
     attachEventListeners();
     loadScheduledSearches();
-    startSmartPolling();
+    startAutomatedPolling(); // Only polls for automated searches
 });
 
-// FIXED: Smart polling that always runs (no hasActiveSchedules dependency)
-function startSmartPolling() {
+// FIXED: Polling that ONLY works for automated searches
+function startAutomatedPolling() {
     // Clear any existing interval
     if (pollingInterval) {
         clearInterval(pollingInterval);
     }
     
-    // Always check for new automated searches every 30 seconds
+    // Only poll for automated searches every 30 seconds
     pollingInterval = setInterval(async () => {
-        await checkForNewAutomatedSearches();
+        if (!isManualSearchActive) {
+            await checkForNewAutomatedSearches();
+        }
     }, 30000);
     
-    // Do an initial check
-    checkForNewAutomatedSearches();
+    // Do an initial check only if no manual search is active
+    if (!isManualSearchActive) {
+        checkForNewAutomatedSearches();
+    }
 }
 
-// FIXED: Check for automated searches without hasActiveSchedules dependency
+// FIXED: Only check for automated searches, ignore manual searches
 async function checkForNewAutomatedSearches() {
     try {
-        // Get recent searches since last check (or last 5 minutes if first time)
+        // Don't poll if we just did a manual search
+        if (isManualSearchActive) {
+            return;
+        }
+        
+        // Get recent AUTOMATED searches since last check
         const checkTime = lastCheckTime || new Date(Date.now() - 5 * 60 * 1000);
         const response = await fetch(`/api/recent-automated-searches?since=${encodeURIComponent(checkTime.toISOString())}`);
         
@@ -55,12 +65,13 @@ async function checkForNewAutomatedSearches() {
         if (data.searches && data.searches.length > 0) {
             console.log(`Found ${data.searches.length} new automated searches`);
             
-            // Display each new search result
+            // Display each new automated search result
             data.searches.forEach((searchData, index) => {
                 displayAutomatedSearchResults(searchData.search, searchData.jobs, true);
                 
-                // Auto-populate the main results with the most recent search
-                if (index === data.searches.length - 1) {
+                // Auto-populate the main results with the most recent automated search
+                // ONLY if no manual search results are showing
+                if (index === data.searches.length - 1 && !hasManualSearchResults()) {
                     autoPopulateResults(searchData.search, searchData.jobs);
                 }
             });
@@ -74,7 +85,12 @@ async function checkForNewAutomatedSearches() {
     }
 }
 
-// FIXED: Load scheduled searches without affecting polling
+// Check if current results are from a manual search
+function hasManualSearchResults() {
+    return isManualSearchActive || document.querySelector('.manual-search-results') !== null;
+}
+
+// Load scheduled searches
 async function loadScheduledSearches() {
     try {
         const response = await fetch('/api/scheduled');
@@ -88,12 +104,14 @@ async function loadScheduledSearches() {
     }
 }
 
-// New function to auto-populate results from automated searches
+// FIXED: Auto-populate only if no manual search results
 function autoPopulateResults(search, jobs) {
-    // Only auto-populate if there are no current manual search results
-    // or if the current results are from an older automated search
-    const shouldAutoPopulate = currentJobs.length === 0 || 
-                               document.querySelector('.automated-results') !== null;
+    // Only auto-populate if:
+    // 1. No manual search is active
+    // 2. No current results OR current results are from automated searches
+    const shouldAutoPopulate = !isManualSearchActive && 
+                               (currentJobs.length === 0 || 
+                                document.querySelector('.automated-results') !== null);
     
     if (shouldAutoPopulate && jobs.length > 0) {
         console.log(`Auto-populating interface with ${jobs.length} jobs from automated search`);
@@ -114,11 +132,14 @@ function autoPopulateResults(search, jobs) {
         automatedHeader.className = 'automated-results-header';
         automatedHeader.innerHTML = `
             <div class="message info auto-populated">
-                <p class="main-message">📡 Auto-populated with latest automated search results</p>
+                <p class="main-message">Auto-populated with latest automated search results</p>
                 <p class="search-details">
                     <strong>Keywords:</strong> "${search.keywords}" | 
                     <strong>Location:</strong> ${search.location || 'Any location'} | 
                     <strong>Time:</strong> ${search.created_at}
+                </p>
+                <p class="automation-note">
+                    <small>This happened because you have active scheduled searches. Do a manual search to see fresh results.</small>
                 </p>
             </div>
         `;
@@ -138,7 +159,7 @@ function autoPopulateResults(search, jobs) {
 
 // Enhanced automated search display
 function displayAutomatedSearchResults(search, jobs, isNewResult = false) {
-    const searchTime = search.created_at; // This is already Pacific-formatted from the backend
+    const searchTime = search.created_at;
     const resultId = `automated-result-${search.id || Date.now()}`;
     
     // Count job sources
@@ -152,7 +173,7 @@ function displayAutomatedSearchResults(search, jobs, isNewResult = false) {
     
     const messageClass = isNewResult ? 'success' : 'info';
     const messageText = isNewResult ? 
-        `📄 New automated search completed! Found ${jobs.length} jobs` :
+        `New automated search completed! Found ${jobs.length} jobs` :
         `Automated search results from ${searchTime}`;
     
     let sourceBreakdown = '';
@@ -193,11 +214,9 @@ function displayAutomatedSearchResults(search, jobs, isNewResult = false) {
     // Insert at the top of results, but after any existing automated results
     const existingAutomated = resultsDiv.querySelectorAll('.automated-results');
     if (existingAutomated.length > 0) {
-        // Insert after the last automated result
         const lastAutomated = existingAutomated[existingAutomated.length - 1];
         lastAutomated.insertAdjacentElement('afterend', automatedResultsDiv);
     } else {
-        // Insert at the very top
         resultsDiv.insertBefore(automatedResultsDiv, resultsDiv.firstChild);
     }
     
@@ -216,7 +235,7 @@ function displayAutomatedSearchResults(search, jobs, isNewResult = false) {
         }, 30000);
     }
     
-    // Limit to maximum 3 automated notification visible at once
+    // Limit to maximum 3 automated notifications visible at once
     const allAutomatedResults = resultsDiv.querySelectorAll('.automated-results');
     if (allAutomatedResults.length > 3) {
         for (let i = 3; i < allAutomatedResults.length; i++) {
@@ -225,7 +244,7 @@ function displayAutomatedSearchResults(search, jobs, isNewResult = false) {
     }
 }
 
-// FIXED: Delete scheduled search without hasActiveSchedules dependency
+// Delete scheduled search
 async function deleteScheduledSearch(scheduleId) {
     if (!confirm('Are you sure you want to delete this scheduled search?')) {
         return;
@@ -242,8 +261,6 @@ async function deleteScheduledSearch(scheduleId) {
         }
         
         showSuccess('Scheduled search deleted successfully!');
-        
-        // Just reload the display
         await loadScheduledSearches();
         
     } catch (error) {
@@ -283,7 +300,7 @@ function attachEventListeners() {
     });
 }
 
-// Handle search form submission
+// FIXED: Handle search form submission
 async function handleSearchSubmit(e) {
     e.preventDefault();
     
@@ -296,11 +313,14 @@ async function handleSearchSubmit(e) {
         return;
     }
     
-    await performSearch(keywords, location, dateFilter);
+    // Mark that a manual search is starting
+    isManualSearchActive = true;
+    
+    await performManualSearch(keywords, location, dateFilter);
 }
 
-// Enhanced perform search function to handle result breakdown
-async function performSearch(keywords, location, dateFilterDays) {
+// FIXED: Perform manual search that returns complete results immediately
+async function performManualSearch(keywords, location, dateFilterDays) {
     showLoading(true);
     clearResults();
     currentJobs = [];
@@ -311,7 +331,7 @@ async function performSearch(keywords, location, dateFilterDays) {
             keywords: keywords,
             location: location || null,
             date_filter_days: dateFilterDays ? parseInt(dateFilterDays) : null,
-            schedule: false
+            schedule: false // This is a manual search
         };
         
         const response = await fetch('/api/search', {
@@ -330,9 +350,13 @@ async function performSearch(keywords, location, dateFilterDays) {
         }
         
         if (data.jobs && data.jobs.length > 0) {
+            // Set the complete results immediately
             currentJobs = data.jobs;
             displayCurrentPage();
             setupPagination();
+            
+            // Add manual search header to prevent auto-population
+            addManualSearchHeader(data);
             
             // Show enhanced success message with breakdown
             if (data.result_breakdown) {
@@ -344,10 +368,38 @@ async function performSearch(keywords, location, dateFilterDays) {
         } else {
             showNoResults();
         }
+        
+        // Manual search stays active until user takes another action
+        // No arbitrary timer - user controls when automation resumes
+        
     } catch (error) {
         showLoading(false);
+        isManualSearchActive = false;
         showError(`Error fetching jobs: ${error.message}`);
         console.error('Search error:', error);
+    }
+}
+
+// Add manual search header to prevent auto-population
+function addManualSearchHeader(data) {
+    const manualHeader = document.createElement('div');
+    manualHeader.className = 'manual-search-results';
+    manualHeader.innerHTML = `
+        <div class="message success manual-search-header">
+            <p class="main-message">Manual Search Results</p>
+            <p class="search-details">
+                Complete results with ${data.result_breakdown.from_database} from database + ${data.result_breakdown.new_from_api} fresh from API
+            </p>
+            <p class="automation-note">
+                <small>Automated search notifications are paused. Schedule a search or refresh the page to resume automation.</small>
+            </p>
+        </div>
+    `;
+    
+    // Insert before the jobs grid
+    const jobsGrid = resultsDiv.querySelector('.jobs-grid');
+    if (jobsGrid) {
+        resultsDiv.insertBefore(manualHeader, jobsGrid);
     }
 }
 
@@ -393,7 +445,7 @@ function showEnhancedSuccess(message, breakdown) {
     }, 5000);
 }
 
-// FIXED: Handle schedule confirmation without hasActiveSchedules
+// Handle schedule confirmation
 async function handleScheduleConfirm() {
     const keywords = keywordsInput.value.trim();
     const location = locationInput.value.trim();
@@ -428,11 +480,13 @@ async function handleScheduleConfirm() {
             throw new Error(data.detail || 'Failed to schedule search');
         }
         
-        showSuccess('Search scheduled successfully!');
+        showSuccess('Search scheduled successfully! Automated search will start running and you\'ll see notifications.');
         closeModals();
-        
-        // Just reload the display
         await loadScheduledSearches();
+        
+        // FIXED: Re-enable automated polling immediately when user creates a scheduled search
+        isManualSearchActive = false;
+        console.log('Automated polling re-enabled after scheduling search');
         
     } catch (error) {
         showError(`Error scheduling search: ${error.message}`);
@@ -453,6 +507,7 @@ async function loadRecentJobs(searchesBack) {
     clearResults();
     currentJobs = [];
     currentPage = 1;
+    isManualSearchActive = true; // Prevent auto-population
     
     try {
         const response = await fetch(`/api/recent-jobs?searches_back=${searchesBack}`);
@@ -473,8 +528,12 @@ async function loadRecentJobs(searchesBack) {
         } else {
             showNoResults();
         }
+        
+        // Recent jobs view stays active until user takes another action
+        
     } catch (error) {
         showLoading(false);
+        isManualSearchActive = false;
         showError(`Error fetching recent jobs: ${error.message}`);
         console.error('Recent jobs error:', error);
     }
@@ -487,7 +546,7 @@ function displayRecentJobsHeader(searches) {
     ).join('<br>');
     
     const recentJobsHeader = `
-        <div class="recent-jobs-header">
+        <div class="recent-jobs-header manual-search-results">
             <h3>Recent Jobs from ${searches.length} searches:</h3>
             <div class="search-details">${searchInfo}</div>
         </div>
@@ -644,6 +703,11 @@ function setupPagination() {
 
 // Global functions for automated result interactions
 window.viewAutomatedJobs = function(resultId, jobs) {
+    // Only allow viewing automated jobs if no manual search is active
+    if (isManualSearchActive) {
+        return;
+    }
+    
     currentJobs = jobs;
     currentPage = 1;
     
@@ -751,7 +815,7 @@ function clearResults() {
     document.getElementById('pagination').classList.add('hidden');
 }
 
-// New function to clear only job results but keep notifications
+// Clear only job results but keep notifications
 function clearJobResults() {
     const jobsGrid = resultsDiv.querySelector('.jobs-grid');
     if (jobsGrid) {
@@ -761,6 +825,11 @@ function clearJobResults() {
     const automatedHeader = resultsDiv.querySelector('.automated-results-header');
     if (automatedHeader) {
         automatedHeader.remove();
+    }
+    
+    const manualHeader = resultsDiv.querySelector('.manual-search-results');
+    if (manualHeader) {
+        manualHeader.remove();
     }
     
     document.getElementById('pagination').classList.add('hidden');
@@ -814,4 +883,4 @@ if (import.meta.hot) {
     console.log('Vite hot reload is active!');
 }
 
-console.log('Enhanced Job Hunting Bot with Smart Polling and Auto-Population loaded successfully!');
+console.log('Fixed Job Hunting Bot - Manual vs Automated Search Handling loaded successfully!');

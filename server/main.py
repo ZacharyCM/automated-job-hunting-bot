@@ -119,7 +119,7 @@ class SearchRequest(BaseModel):
     schedule: bool = False
     frequency: Optional[str] = "daily"
 
-# Global variable to track latest automated search
+# Global variable to track latest automated search (only for automated searches)
 latest_automated_search_id = None
 
 def format_job_for_ui(job_data, source="api"):
@@ -171,7 +171,6 @@ def format_job_for_ui(job_data, source="api"):
             "source": source
         }
 
-# Enhanced search functions
 def normalize_search_terms(text):
     """
     Normalize search terms for better matching
@@ -246,26 +245,70 @@ def get_existing_jobs_from_db(keywords, location, date_filter_days, db):
             ])
         query = query.filter(or_(*location_conditions))
     
-    # Add date filtering
+    # Add date filtering - FIXED: Apply date filter to job posting date, not DB storage date
     if date_filter_days:
         cutoff_date = datetime.utcnow() - timedelta(days=date_filter_days)
         
-        # Filter by when we stored the job (more reliable than parsing job_posted dates)
-        query = query.filter(Job.created_at >= cutoff_date)
-    
-    # Order by most recent first and remove duplicates
-    existing_jobs = query.order_by(Job.created_at.desc()).all()
-    
-    # Remove duplicates based on external_id, title, and company
-    seen = set()
-    unique_jobs = []
-    for job in existing_jobs:
-        identifier = (job.external_id, job.title.lower(), job.company.lower())
-        if identifier not in seen:
-            seen.add(identifier)
-            unique_jobs.append(job)
-    
-    return unique_jobs
+        # Get all jobs first, then filter by date posted in memory (more reliable for varied date formats)
+        all_jobs = query.order_by(Job.created_at.desc()).all()
+        filtered_jobs = []
+        
+        for job in all_jobs:
+            if should_include_job_by_date(job.date_posted, date_filter_days):
+                filtered_jobs.append(job)
+        
+        # Remove duplicates based on external_id, title, and company
+        seen = set()
+        unique_jobs = []
+        for job in filtered_jobs:
+            identifier = (job.external_id, job.title.lower(), job.company.lower())
+            if identifier not in seen:
+                seen.add(identifier)
+                unique_jobs.append(job)
+        
+        return unique_jobs
+    else:
+        # Order by most recent first and remove duplicates
+        existing_jobs = query.order_by(Job.created_at.desc()).all()
+        
+        # Remove duplicates based on external_id, title, and company
+        seen = set()
+        unique_jobs = []
+        for job in existing_jobs:
+            identifier = (job.external_id, job.title.lower(), job.company.lower())
+            if identifier not in seen:
+                seen.add(identifier)
+                unique_jobs.append(job)
+        
+        return unique_jobs
+
+def should_include_job_by_date(date_posted_str, days_filter):
+    """
+    Check if a job should be included based on its posting date and the filter
+    """
+    if not days_filter:
+        return True
+        
+    if not date_posted_str:
+        return True  # Include jobs without dates
+        
+    try:
+        # Parse the job date
+        if date_posted_str.endswith('Z'):
+            job_date = datetime.fromisoformat(date_posted_str.replace('Z', '+00:00'))
+        else:
+            job_date = datetime.fromisoformat(date_posted_str)
+        
+        # Convert to UTC if timezone aware
+        if job_date.tzinfo:
+            job_date = job_date.replace(tzinfo=None)
+        
+        # Check if job is within the date range
+        cutoff_date = datetime.utcnow() - timedelta(days=days_filter)
+        return job_date >= cutoff_date
+        
+    except (ValueError, TypeError):
+        return True  # Include jobs with unparseable dates
 
 def format_job_from_db(job):
     """
@@ -454,18 +497,18 @@ async def run_scheduled_search(scheduled_search_id: int):
         if not scheduled_search or scheduled_search.is_active != "true":
             return
         
-        print(f"Running enhanced scheduled search: {scheduled_search.keywords}")
+        print(f"Running automated search: {scheduled_search.keywords}")
         
-        # Step 1: Get existing jobs from database (SAME AS MANUAL SEARCH)
+        # Step 1: Get existing jobs from database with PROPER date filtering
         existing_jobs = get_existing_jobs_from_db(
             scheduled_search.keywords,
             scheduled_search.location,
-            scheduled_search.date_filter_days,
+            scheduled_search.date_filter_days,  # This now properly filters by job posting date
             db
         )
-        print(f"Found {len(existing_jobs)} existing jobs in database for scheduled search")
+        print(f"Found {len(existing_jobs)} existing jobs in database for automated search")
         
-        # Step 2: Get fresh jobs from API (SAME AS MANUAL SEARCH)
+        # Step 2: Get fresh jobs from API
         all_api_jobs = []
         page = 1
         max_pages = 5  # Limit pages for scheduled searches to prevent long runtime
@@ -491,29 +534,30 @@ async def run_scheduled_search(scheduled_search_id: int):
                 
             page += 1
         
-        print(f"Retrieved {len(all_api_jobs)} jobs from API for scheduled search")
+        print(f"Retrieved {len(all_api_jobs)} jobs from API for automated search")
         
-        # Step 3: Apply date filter to API jobs (SAME AS MANUAL SEARCH)
+        # Step 3: Apply date filter to API jobs (PROPER filtering by job posting date)
         if scheduled_search.date_filter_days:
             filtered_api_jobs = filter_jobs_by_date(all_api_jobs, scheduled_search.date_filter_days)
         else:
             filtered_api_jobs = all_api_jobs
         
-        print(f"After date filtering: {len(filtered_api_jobs)} API jobs for scheduled search")
+        print(f"After date filtering: {len(filtered_api_jobs)} API jobs for automated search")
         
-        # Step 4: Combine database jobs with new API jobs (SAME AS MANUAL SEARCH)
+        # Step 4: Combine database jobs with new API jobs
         combined_jobs, new_api_count, db_count = combine_db_and_api_jobs(
             existing_jobs, 
             filtered_api_jobs
         )
         
-        print(f"Combined results for scheduled search: {len(combined_jobs)} total jobs ({db_count} from DB, {new_api_count} new from API)")
+        print(f"Combined results for automated search: {len(combined_jobs)} total jobs ({db_count} from DB, {new_api_count} new from API)")
         
-        # Step 5: Store new API jobs and create search record (SAME AS MANUAL SEARCH)
+        # Step 5: Store new API jobs and create search record (mark as AUTOMATED)
         search_record = Search(
             keywords=scheduled_search.keywords,
             location=scheduled_search.location or "",
-            results_count=len(combined_jobs)
+            results_count=len(combined_jobs),
+            search_type="automated"  # MARK AS AUTOMATED
         )
         db.add(search_record)
         db.commit()
@@ -558,7 +602,7 @@ async def run_scheduled_search(scheduled_search_id: int):
         scheduled_search.last_run = datetime.utcnow()
         db.commit()
         
-        print(f"Enhanced scheduled search completed: {len(combined_jobs)} total jobs ({db_count} from DB + {jobs_stored} new) for '{scheduled_search.keywords}'")
+        print(f"Automated search completed: {len(combined_jobs)} total jobs ({db_count} from DB + {jobs_stored} new) for '{scheduled_search.keywords}'")
         
         # Return the results in the same format as manual search for UI polling
         return {
@@ -569,7 +613,7 @@ async def run_scheduled_search(scheduled_search_id: int):
         }
         
     except Exception as e:
-        print(f"Enhanced scheduled search failed for ID {scheduled_search_id}: {e}")
+        print(f"Automated search failed for ID {scheduled_search_id}: {e}")
         db.rollback()
         return None
     finally:
@@ -634,8 +678,8 @@ async def get_recent_automated_searches(
     db: Session = Depends(get_db)
 ):
     """
-    Get recent searches with their jobs since a given timestamp.
-    This endpoint returns consistently formatted jobs for UI display.
+    Get recent AUTOMATED searches with their jobs since a given timestamp.
+    FIXED: Only returns automated searches, not manual ones.
     """
     try:
         # Parse the since parameter
@@ -650,10 +694,13 @@ async def get_recent_automated_searches(
             # Default to last 5 minutes if no timestamp provided
             since_datetime = datetime.utcnow() - timedelta(minutes=5)
         
-        # Get searches created since the timestamp
+        # Get ONLY automated searches created since the timestamp
         recent_searches = (
             db.query(Search)
-            .filter(Search.created_at >= since_datetime)
+            .filter(and_(
+                Search.created_at >= since_datetime,
+                Search.search_type == "automated"  # ONLY AUTOMATED SEARCHES
+            ))
             .order_by(Search.created_at.desc())
             .limit(10)
             .all()
@@ -664,7 +711,7 @@ async def get_recent_automated_searches(
             # Get ALL jobs for this search from database
             db_jobs = db.query(Job).filter(Job.search_id == search.id).all()
             
-            # Also get existing jobs that match this search criteria
+            # Also get existing jobs that match this search criteria with proper date filtering
             existing_matched_jobs = get_existing_jobs_from_db(
                 search.keywords,
                 search.location,
@@ -714,7 +761,7 @@ async def get_recent_automated_searches(
 
 @app.post("/api/search")
 async def unified_search(request: SearchRequest, db: Session = Depends(get_db)):
-    """Enhanced unified search that combines database and API results with consistent formatting"""
+    """FIXED unified search that properly handles manual vs automated searches"""
     try:
         if not adzuna_client.api_key or not adzuna_client.app_id:
             raise HTTPException(
@@ -752,22 +799,22 @@ async def unified_search(request: SearchRequest, db: Session = Depends(get_db)):
                 "date_filter_days": scheduled_search.date_filter_days
             }
         else:
-            # MANUAL SEARCH with consistent formatting
-            print(f"Starting enhanced search for: '{request.keywords}' in '{request.location}' (last {request.date_filter_days} days)")
+            # FIXED MANUAL SEARCH - Returns complete results immediately, no auto-population
+            print(f"Starting MANUAL search for: '{request.keywords}' in '{request.location}' (last {request.date_filter_days} days)")
             
-            # Step 1: Get existing jobs from database
+            # Step 1: Get existing jobs from database with PROPER date filtering
             existing_jobs = get_existing_jobs_from_db(
                 request.keywords, 
                 request.location, 
-                request.date_filter_days, 
+                request.date_filter_days,  # Now properly filters by job posting date
                 db
             )
             print(f"Found {len(existing_jobs)} existing jobs in database")
             
-            # Step 2: Get fresh jobs from API
+            # Step 2: Get fresh jobs from API (more comprehensive for manual searches)
             all_api_jobs = []
             page = 1
-            max_pages = 20
+            max_pages = 20  # More pages for manual searches
             
             while page <= max_pages:
                 search_params = {
@@ -792,7 +839,7 @@ async def unified_search(request: SearchRequest, db: Session = Depends(get_db)):
             
             print(f"Retrieved {len(all_api_jobs)} jobs from API")
             
-            # Step 3: Apply date filter to API jobs
+            # Step 3: Apply date filter to API jobs (PROPER filtering by job posting date)
             if request.date_filter_days:
                 filtered_api_jobs = filter_jobs_by_date(all_api_jobs, request.date_filter_days)
             else:
@@ -800,14 +847,15 @@ async def unified_search(request: SearchRequest, db: Session = Depends(get_db)):
             
             print(f"After date filtering: {len(filtered_api_jobs)} API jobs")
             
-            # Step 4: Combine database jobs with new API jobs (using original formats)
+            # Step 4: Combine database jobs with new API jobs
             combined_jobs, new_api_count, db_count = combine_db_and_api_jobs(
-                existing_jobs,  # Keep original database objects
-                filtered_api_jobs  # Keep original API dictionaries
+                existing_jobs,
+                filtered_api_jobs
             )
-
             
-            # Step 5: Format all jobs consistently AFTER combining
+            print(f"Combined results: {len(combined_jobs)} total jobs ({db_count} from DB, {new_api_count} new from API)")
+            
+            # Step 5: Format all jobs consistently for UI
             final_formatted_jobs = []
             for job_data in combined_jobs:
                 if hasattr(job_data, 'external_id'):
@@ -818,20 +866,18 @@ async def unified_search(request: SearchRequest, db: Session = Depends(get_db)):
                     formatted_job = format_job_for_ui(job_data, source=job_data.get("source", "api"))
                 final_formatted_jobs.append(formatted_job)
 
-            combined_jobs = final_formatted_jobs
-            
-            print(f"Combined results: {len(combined_jobs)} total jobs ({db_count} from DB, {new_api_count} new from API)")
-            
-            # Step 6: Store new API jobs in database (using original API data structure)
+            # Step 6: Store new API jobs and create search record (mark as MANUAL)
             search_record = Search(
                 keywords=request.keywords,
                 location=request.location or "",
-                results_count=len(combined_jobs)
+                results_count=len(final_formatted_jobs),
+                search_type="manual"  # MARK AS MANUAL - won't trigger auto-population
             )
             db.add(search_record)
             db.commit()
             db.refresh(search_record)
             
+            # Store only new jobs in database
             jobs_stored = 0
             for job_data in filtered_api_jobs:
                 # Check for existing job before storing
@@ -864,10 +910,10 @@ async def unified_search(request: SearchRequest, db: Session = Depends(get_db)):
             db.commit()
             print(f"Stored {jobs_stored} new jobs in database")
             
-            # Return consistently formatted jobs
+            # Return complete results immediately for manual search
             return {
-                "jobs": combined_jobs,  # Already consistently formatted
-                "total_results": len(combined_jobs),
+                "jobs": final_formatted_jobs,  # Complete results ready for display
+                "total_results": len(final_formatted_jobs),
                 "search_params": {
                     "keywords": request.keywords,
                     "location": request.location,
@@ -876,7 +922,7 @@ async def unified_search(request: SearchRequest, db: Session = Depends(get_db)):
                 "result_breakdown": {
                     "from_database": db_count,
                     "new_from_api": new_api_count,
-                    "total": len(combined_jobs)
+                    "total": len(final_formatted_jobs)
                 }
             }
         
